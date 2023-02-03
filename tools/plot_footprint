@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+
+import argparse
+import math
+import sys
+from typing import Optional, List, Any, Tuple, Callable
+
+import sinter
+from matplotlib import pyplot as plt
+
+from midout.all_circuits import xz_piece_error_rate
+
+
+def extrapolate_footprint_achieving_error_rate(
+        group: List[sinter.TaskStats],
+        *,
+        target_p: float,
+        failure_unit_func: Callable[[sinter.TaskStats], float],
+) -> Optional[sinter.Fit]:
+    assert len({stat.json_metadata['p'] for stat in group}) == 1
+    sqrt_qs = []
+    log_ps = []
+    for stat in group:
+        if stat.shots:
+            p_shot = stat.errors / stat.shots
+            if 0 < p_shot < 0.3:
+                p_unit = xz_piece_error_rate(p_shot, pieces=failure_unit_func(stat), combo=stat.json_metadata['b'] == 'XZ')
+                sqrt_qs.append(math.sqrt(stat.json_metadata['q']))
+                log_ps.append(math.log(p_unit))
+
+    if len(log_ps) < 2:
+        # Can't interpolate a slope from 1 data point.
+        return None
+
+    slope_fit = sinter.fit_line_slope(
+        xs=log_ps,
+        ys=sqrt_qs,
+        max_extra_squared_error=1,
+    )
+    if slope_fit.best >= 0:
+        # Slope is going the wrong way! Definitely over threshold.
+        return None
+
+    fit = sinter.fit_line_y_at_x(
+        xs=log_ps,
+        ys=sqrt_qs,
+        target_x=math.log(target_p),
+        max_extra_squared_error=1,
+    )
+
+    return sinter.Fit(
+        low=fit.low**2,
+        best=fit.best**2,
+        high=fit.high**2,
+    )
+
+
+def teraquop_curve(
+        group: List[sinter.TaskStats],
+        *,
+        target_p: float,
+        failure_unit_func: Callable[[sinter.TaskStats], float],
+) -> Tuple[List[float], List[float], List[float], List[float]]:
+    xs = []
+    ys_best = []
+    ys_low = []
+    ys_high = []
+    p_groups = sinter.group_by(group, key=lambda stats: stats.json_metadata['p'])
+    for p in sorted(p_groups.keys()):
+        p_group = p_groups[p]
+        pt = extrapolate_footprint_achieving_error_rate(
+            p_group,
+            target_p=target_p,
+            failure_unit_func=failure_unit_func,
+        )
+        if pt is not None:
+            xs.append(p)
+            ys_best.append(pt.best)
+            ys_low.append(pt.low)
+            ys_high.append(pt.high)
+    return xs, ys_low, ys_best, ys_high
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "stats",
+        type=str,
+    )
+    parser.add_argument(
+        "--show",
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        type=str,
+    )
+    parser.add_argument(
+        "--unit",
+        choices=['megaround', 'teraquop', 'terashot'],
+        required=True,
+    )
+    parser.add_argument(
+        "--basis",
+        choices=['X', 'Z', 'XZ'],
+        nargs='+',
+        required=True,
+    )
+    parser.add_argument(
+        "--filter_func",
+        type=str,
+        default="True",
+    )
+    parser.add_argument(
+        "--label_func",
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        "--order_func",
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        "--title",
+        type=str,
+        default=None,
+    )
+    args = parser.parse_args()
+
+    args.filter_func_desc = args.filter_func
+    args.filter_func = eval(compile(
+        'lambda *, decoder, metadata, strong_id: ' + args.filter_func,
+        filename='filter_func:command_line_arg',
+        mode='eval'))
+
+    if args.label_func is None:
+        args.label_func = lambda *, decoder, metadata, strong_id: f"noise={metadata['noise']} basis={metadata['b']} style={metadata['style']}"
+    else:
+        args.label_func = eval(compile(
+            'lambda *, decoder, metadata, strong_id: ' + args.label_func,
+            filename='label_func:command_line_arg',
+            mode='eval'))
+
+    if args.order_func is None:
+        args.order_func = args.label_func
+    else:
+        args.order_func = eval(compile(
+            'lambda *, decoder, metadata, strong_id: ' + args.order_func,
+            filename='order_func:command_line_arg',
+            mode='eval'))
+
+    def group_key(stats: sinter.TaskStats) -> Any:
+        """the key to use for sinter.group_by
+        
+        returns a tuple of the output of order_func then label_func
+            order_func output should override label in terms of sorting,
+            label_func output will be used for the plot label
+        
+        Note that stats different order outputs but the same label 
+        will appear twice in the plot legend with different colors/markers but the same label
+        """
+        return (
+            args.order_func(decoder=stats.decoder, metadata=stats.json_metadata, strong_id=stats.strong_id),
+            args.label_func(decoder=stats.decoder, metadata=stats.json_metadata, strong_id=stats.strong_id),
+        )
+
+    if args.out is None and not args.show:
+        raise ValueError("args.out is None and not args.show")
+
+    stats: List[sinter.TaskStats] = sinter.stats_from_csv_files(args.stats)
+    failure_unit_name = args.unit[0].upper() + args.unit[1:]
+    if args.unit == 'megaround':
+        target_p = 1e-6
+        failure_unit_func = lambda stat: stat.json_metadata['r']
+    elif args.unit == 'teraquop':
+        target_p = 1e-12
+        failure_unit_func = lambda stat: stat.json_metadata['r'] / stat.json_metadata['d']
+    elif args.unit == 'terashot':
+        target_p = 1e-12
+        failure_unit_func = lambda _: 1
+    else:
+        raise NotImplementedError(args.unit)
+
+    stats = [
+        stat
+        for stat in stats
+        if args.filter_func(decoder=stat.decoder, metadata=stat.json_metadata, strong_id=stat.strong_id)
+        if stat.json_metadata['b'] in args.basis
+    ]
+    if not stats:
+        print(f"WARNING: No stats left after filtering basis in {args.basis} filter_func={args.filter_func_desc}. Skipping plot.", file=sys.stderr)
+        return
+
+    markers = "ov*sp^<>8PhH+xXDd|" * 100
+    import matplotlib.colors
+    colors = list(matplotlib.colors.TABLEAU_COLORS) * 3
+
+    ax: plt.Axes
+    fig: plt.Figure
+    fig, ax = plt.subplots(1, 1)
+    groups = sinter.group_by(stats, key=group_key)
+    curves = {
+        key: teraquop_curve(
+            groups[key],
+            target_p=target_p,
+            failure_unit_func=failure_unit_func,
+        )
+        for key in sorted(groups.keys())
+    }
+    for k, ((order, label), (xs, ys_low, ys_best, ys_high)) in enumerate(curves.items()):
+        ax.fill_between(xs, ys_low, ys_high, alpha=0.2, color=colors[k])
+    for k, ((order, label), (xs, ys_low, ys_best, ys_high)) in enumerate(curves.items()):
+        ax.plot(xs, ys_best, label=label, marker=markers[k], color=colors[k])
+
+    ax.set_title(args.title or f"{failure_unit_name} Footprint vs Physical Error Rate")
+    ax.set_ylabel(f"Physical Qubits for 1 Error per {failure_unit_name}")
+    ax.set_xlabel("Physical Error Rate")
+    ax.set_ylim(1e2, 1e4)
+    ax.set_xlim(1e-4, 1e-2)
+    ax.legend()
+    ax.loglog()
+    ax.grid(which='minor')
+    ax.grid(which='major', color='black')
+
+    fig.set_size_inches(10, 10)
+    if args.out is not None:
+        fig.savefig(args.out, bbox_inches='tight', dpi=200)
+    if args.show:
+        plt.show()
+
+
+if __name__ == '__main__':
+    main()

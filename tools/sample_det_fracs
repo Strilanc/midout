@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+
+import argparse
+
+import numpy as np
+import sinter
+import stim
+
+
+def circuit_det_frac(circuit: stim.Circuit) -> float:
+    num_shots = 2**13
+    shots = circuit.compile_detector_sampler().sample_bit_packed(shots=num_shots)
+    total = 0
+    for k in range(8):
+        total += np.count_nonzero(shots & np.uint8(1 << k))
+    return total / circuit.num_detectors / num_shots
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--circuits",
+        type=str,
+        required=True,
+        nargs='+',
+    )
+    parser.add_argument("--out", type=str)
+    args = parser.parse_args()
+
+    print("detection_fraction,strong_id")
+    for c in args.circuits:
+        circuit = stim.Circuit.from_file(c)
+        det_frac = circuit_det_frac(circuit)
+        strong_id = sinter.Task(
+            circuit=circuit,
+            detector_error_model=circuit.detector_error_model(decompose_errors=True),
+            decoder='internal_correlated',
+            json_metadata=sinter.comma_separated_key_values(c),
+        ).strong_id()
+        print(f'{det_frac},'.ljust(25) + strong_id)
+
+
+if __name__ == '__main__':
+    main()

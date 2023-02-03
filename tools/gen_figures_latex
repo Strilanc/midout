@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+
+
+def escape_latex(x: str) -> str:
+    return x.replace('_', '\\_')
+
+
+for circuit_style in ['4-CX', '4-CZ', '3-CX', '3-CZ', '3-CX-wiggle', '3-CZ-wiggle', '4-CXSWAP', '4-ISWAP', '3-CXSWAP', '3-CXSWAP-wiggle', '3-ISWAP-wiggle', 'WIGGLING-CX', 'WIGGLING-CZ', 'GLIDING-CX', 'GLIDING-CZ', 'SLIDING-CX', 'SLIDING-CZ', 'TORIC-4-CX', 'TORIC-3_HEAVY-CX', 'TORIC-3_SEMI_HEAVY-CX', '3-CX_MXX_MZZ',  '3-CZ_MZZ', 'TORIC-3-CX_MXX_MZZ']:
+    print(fr"""
+\begin{{figure}}
+    \centering
+    \resizebox{{0.99\linewidth}}{{!}}{{
+        % \includesvg{{assets/regen/schedules/schedule_{circuit_style}.svg}}
+        \includegraphics{{assets/regen/schedules/schedule_{circuit_style}.svg.png}}
+    }}
+    \caption{{
+        Circuit schedule for ``{escape_latex(circuit_style)}" circuits.
+        Colored regions are elements of the instantaneous stabilizer group formed by slicing the detecting regions of a few representative detectors immediately after the displayed gate layer.
+        Red regions are X stabilizers, blue regions are Z stabilizers, green regions are Y stabilizers, and gray regions with
+        colored corners are mixed basis stabilizers.
+    }}
+    \label{{fig:circuit_schedule_{circuit_style.replace('-', '_')}}}
+\end{{figure}}
+
+\begin{{figure}}
+    \centering
+    \resizebox{{0.45\linewidth}}{{!}}{{
+        \includegraphics{{assets/regen/plot/classic_{circuit_style}.png}}
+    }}
+    \resizebox{{0.45\linewidth}}{{!}}{{
+        \includegraphics{{assets/regen/plot/fan_{circuit_style}.png}}
+    }}
+    \caption{{
+        Threshold diagram and line fit diagram for ``{escape_latex(circuit_style)}" circuits.
+        Highlighted regions cover hypotheses with likelihoods within a factor of 1000 of the maximum likelihood hypothesis.
+        Dashed lines are least squares fits projecting the number of qubits needed to reach a target error rate. 
+    }}
+    \label{{fig:plot_{circuit_style.replace('-', '_')}}}
+\end{{figure}}
+
+\clearpage
+    """)

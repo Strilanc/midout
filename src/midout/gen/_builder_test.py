@@ -1,0 +1,12 @@
+import stim
+
+from midout.gen._builder import Builder
+
+
+def test_builder_init():
+    builder = Builder.for_qubits([0, 1j, 3 + 2j])
+    assert builder.circuit == stim.Circuit("""
+        QUBIT_COORDS(0, 0) 0
+        QUBIT_COORDS(0, 1) 1
+        QUBIT_COORDS(3, 2) 2
+    """)

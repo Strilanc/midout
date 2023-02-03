@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+
+import argparse
+import sys
+from typing import List, Any, Callable
+
+import numpy as np
+import scipy.stats
+import sinter
+from matplotlib import pyplot as plt
+
+from midout.all_circuits import xz_piece_error_rate
+
+
+def plot_fit(*,
+             ax: plt.Axes,
+             color: Any,
+             marker: str,
+             label: str,
+             stats: List[sinter.TaskStats],
+             failure_unit_func: Callable[[sinter.TaskStats], float]):
+    fit_xs = []
+    fit_ys = []
+    log_fit_ys = []
+
+    scatter_xs = []
+    scatter_best_ys = []
+    scatter_min_ys = []
+    scatter_max_ys = []
+    for stat in stats:
+        x = stat.json_metadata['q']**0.5
+        e = sinter.fit_binomial(num_shots=stat.shots, num_hits=stat.errors, max_likelihood_factor=1e3)
+        f_low = xz_piece_error_rate(e.low, pieces=failure_unit_func(stat), combo=stat.json_metadata['b'] == 'XZ')
+        f_best = xz_piece_error_rate(e.best, pieces=failure_unit_func(stat), combo=stat.json_metadata['b'] == 'XZ')
+        f_high = xz_piece_error_rate(e.high, pieces=failure_unit_func(stat), combo=stat.json_metadata['b'] == 'XZ')
+        for _ in range(min(stat.errors, 5)):
+            fit_xs.append(x)
+            fit_ys.append(f_best)
+            log_fit_ys.append(np.log(f_best))
+        scatter_min_ys.append(f_low)
+        scatter_max_ys.append(f_high)
+        scatter_best_ys.append(f_best)
+        scatter_xs.append(x)
+    ax.errorbar(
+        scatter_xs,
+        scatter_best_ys,
+        [scatter_best_ys - np.array(scatter_min_ys), np.array(scatter_max_ys) - scatter_best_ys],
+        marker=marker,
+        color=color,
+        linestyle='',
+        elinewidth=1,
+        capsize=3,
+        label=label,
+    )
+    if len(set(fit_xs)) >= 2 and all(e < 0.75 for e in scatter_max_ys):
+        fit = scipy.stats.linregress(fit_xs, log_fit_ys)
+        if fit.slope < 0:
+            x_low = min(fit_xs) * 0.9
+            y_end = np.exp(fit.intercept + fit.slope * 100)
+            ax.plot([x_low, 100],
+                    [np.exp(fit.intercept + fit.slope * x_low), y_end],
+                    linestyle='--',
+                    color=color)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "stats",
+        type=str,
+    )
+    parser.add_argument(
+        "--show",
+        action='store_true',
+        default=False,
+    )
+    parser.add_argument(
+        "--out",
+        default=None,
+        type=str,
+    )
+    parser.add_argument(
+        "--basis",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--style",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--unit",
+        choices=['round', 'quop', 'shot'],
+        required=True,
+    )
+    args = parser.parse_args()
+    if args.out is None and not args.show:
+        raise ValueError("args.out is None and not args.show")
+
+    stats: List[sinter.TaskStats] = sinter.stats_from_csv_files(args.stats)
+    failure_unit_name = args.unit
+    if failure_unit_name == 'round':
+        failure_unit_func = lambda stat: stat.json_metadata['r']
+    elif failure_unit_name == 'quop':
+        failure_unit_func = lambda stat: stat.json_metadata['r'] / stat.json_metadata['d']
+    elif failure_unit_name == 'shot':
+        failure_unit_func = lambda _: 1
+    else:
+        raise NotImplementedError(failure_unit_name)
+
+    markers = "ov*sp^<>+xXDd|" * 100
+    import matplotlib.colors
+    colors = list(matplotlib.colors.TABLEAU_COLORS) * 3
+
+    stats = [stat for stat in stats if stat.json_metadata['style'] == args.style and stat.json_metadata['b'] == args.basis]
+    if not stats:
+        print(f"WARNING: No stats left after filtering style={args.style} basis={args.basis}. Skipping plot.", file=sys.stderr)
+        return
+    ax: plt.Axes
+    fig: plt.Figure
+    fig, ax = plt.subplots(1, 1)
+    groups = sinter.group_by(stats, key=lambda stat: stat.json_metadata['p'])
+    for k, p in enumerate(sorted(groups.keys(), reverse=True)):
+        plot_fit(
+            ax=ax,
+            color=colors[k],
+            marker=markers[k],
+            stats=groups[p],
+            failure_unit_func=failure_unit_func,
+            label=f'style={args.style} p={p}')
+
+    ax.set_title(f"{args.basis} Logical Error Rate per {failure_unit_name} vs Sqrt Qubit Count for style={args.style}")
+    ax.set_ylabel(f"{args.basis} Logical Error Rate per {failure_unit_name}")
+    ax.set_xlabel("Qubit Count (sqrt scale)")
+    ax.set_ylim(1e-12, 1e-0)
+    sqrt_x_ticks = range(0, 41, 5)
+    ax.set_xlim(0, sqrt_x_ticks[-1])
+    ax.set_xticks(sqrt_x_ticks, labels=[str(d**2) for d in sqrt_x_ticks])
+    ax.legend()
+    ax.semilogy()
+    ax.grid(which='minor')
+    ax.grid(which='major', color='black')
+
+    fig.set_size_inches(10, 10)
+    if args.out is not None:
+        fig.savefig(args.out, bbox_inches='tight', dpi=200)
+    if args.show:
+        plt.show()
+
+
+if __name__ == '__main__':
+    main()

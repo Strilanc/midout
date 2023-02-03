@@ -1,0 +1,412 @@
+#!/usr/bin/env python3
+import pathlib
+import os
+
+from  xml.etree import ElementTree
+
+from midout import all_circuits, gen
+from midout.util import svg_marking_tools as smt    
+
+
+def escape_latex(x: str) -> str:
+    return x.replace('_', '\\_')
+
+
+parent = pathlib.Path('out/assets/regen/')
+parent.mkdir(exist_ok=True, parents=True)
+
+main_figures = parent / "main_figures"
+main_figures.mkdir(exist_ok=True, parents=True)
+
+print("Making Overview Plots:")
+for tick_range, circuit_style, mark_kwargs in [
+        (range(12, 19), '4-CX', {'coords':(None, None, 3)}),
+        (range(10, 21), '4-CZ', {'coords':(None, None, 2)}),
+        (range(10, 21), '4-ISWAP', {'coords':(None, None, 2)}),
+        (range(13, 26), '3-CX', {'coords':(None, None, 4)}),
+        (range(10, 20), '3-CXSWAP', {'coords':(None, None, 3)}),
+        (range(13, 26), 'WIGGLING-CX', {'coords':(None, None, 3)}),
+    ]:
+
+    circuit = all_circuits.make_requested_surface_code(
+        basis='Z',
+        distance=5,
+        noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+        style=circuit_style,
+        rounds=10,
+    )[1].without_noise()
+    diagram = circuit.diagram(
+        "time+detector-slice-svg",
+        filter_coords=None,
+        tick=tick_range,
+    )
+    #with open(main_figures / f'overview_{circuit_style}.svg', 'w') as f:
+    #    print(diagram, file=f)
+
+    tree = smt.parse_string_to_tree(str(diagram))
+    num_marked = smt.mark_slices(tree, **mark_kwargs)
+    tree.write(main_figures / f'overview_{circuit_style}_{min(tick_range)}-{max(tick_range)}.svg')
+
+    print(f"Made Circuit {circuit_style}, {num_marked} markers")
+print()
+
+
+fig_name = "2_surface_code_CX"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+for tick in range(12,19):
+    circuit_style = "4-CX"
+    circuit = all_circuits.make_requested_surface_code(
+        basis='Z',
+        distance=5,
+        noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+        style=circuit_style,
+        rounds=10,
+    )[1].without_noise()
+    diagram = circuit.diagram(
+        "detector-slice-svg",
+        filter_coords=None,
+        tick=tick,
+    )
+    with open(fig_folder / f'pannel_{tick}.svg', 'w') as f:
+        print(diagram, file=f)
+    print(f"Made Pannel {tick}")
+
+    tree = smt.parse_string_to_tree(str(diagram))
+    num_marked = smt.mark_slices(tree, coords=(None, None, 3))
+    tree.write(fig_folder / f'pannel_{tick}_marked.svg')
+
+    print(f"Made Pannel {tick}, {num_marked} markers")
+print()
+
+
+fig_name = "2_det_regions_movements"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+for tick in list(range(12,19)):
+    circuit_style = "4-CX"
+    circuit = all_circuits.make_requested_surface_code(
+        basis='Z',
+        distance=5,
+        noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+        style=circuit_style,
+        rounds=10,
+    )[1].without_noise()
+    diagram = circuit.diagram(
+        "time+detector-slice-svg",
+        filter_coords=[(1.5, 1.5), (2.5, 1.5)],
+        tick=tick-1,
+    )
+    with open(fig_folder / f'pannel_{tick}_gates.svg', 'w') as f:
+        print(diagram, file=f)
+
+    diagram = circuit.diagram(
+        "detector-slice-svg",
+        filter_coords=[(1.5, 1.5), (2.5, 1.5)],
+        tick=tick,
+    )
+    tree = smt.parse_string_to_tree(str(diagram))
+    num_marked = smt.mark_slices(tree, coords=(None, None, 3))
+    tree.write(fig_folder / f'pannel_{tick}.svg')
+
+    print(f"Made Pannel {tick}, {num_marked} markers")
+print()
+
+
+fig_name = "2_surface_code_CZ"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+for tick in list(range(10,21,2))+[15]:
+    circuit_style = "4-CZ"
+    circuit = all_circuits.make_requested_surface_code(
+        basis='Z',
+        distance=5,
+        noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+        style=circuit_style,
+        rounds=10,
+    )[1].without_noise()
+    diagram = circuit.diagram(
+        "detector-slice-svg",
+        filter_coords=None,
+        tick=tick,
+    )
+    #with open(fig_folder / f'pannel_{tick}.svg', 'w') as f:
+    #    print(diagram, file=f)
+
+    tree = smt.parse_string_to_tree(str(diagram))
+    num_marked = smt.mark_slices(tree, coords=(None, None, 2))
+    tree.write(fig_folder / f'pannel_{tick}.svg')
+
+    print(f"Made Pannel {tick}, {num_marked} markers")
+print()
+
+fig_name = "3a_half_cycle"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+
+qubits = [1+0j, 0+1j, 2+1j, 1+2j, 3+2j, 2+3j]
+builder = gen.Builder.for_qubits(qubits=qubits)
+builder.tick()
+builder.gate2("CX", [(1+0j, 0+1j), (2+1j, 1+2j), (3+2j, 2+3j)])
+builder.tick()
+builder.gate2("CX", [(0+1j, 1+2j), (3+2j, 2+1j)])
+builder.tick()
+builder.measure([1+2j], basis='Z', save_layer='0')
+builder.detector(pos=None, keys=[gen.AtLayer(1+2j, '0')])
+builder.measure([3+2j], basis='X', save_layer='1')
+builder.detector(pos=None, keys=[gen.AtLayer(3+2j, '1')])
+circuit = builder.circuit
+diagram = circuit.diagram(
+    "time+detector-slice-svg",
+    filter_coords=None,
+    tick=range(4)
+)
+with open(fig_folder / f'pannel_a.svg', 'w') as f:
+    print(diagram, file=f)    
+
+circuit_style = "3-CX"
+circuit = all_circuits.make_requested_surface_code(
+    basis='Z',
+    distance=5,
+    noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+    style=circuit_style,
+    rounds=10,
+)[1].without_noise()
+diagram = circuit.diagram(
+    "time+detector-slice-svg",
+    filter_coords=[(i+0.5, k+0.5, 2) for i in range(5) for k in range(5)],
+    tick=range(10, 14)
+)
+with open(fig_folder / f'pannel_b.svg', 'w') as f:
+    print(diagram, file=f)   
+
+circuit_style = "3-CX"
+circuit = all_circuits.make_requested_surface_code(
+    basis='Z',
+    distance=5,
+    noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+    style=circuit_style,
+    rounds=10,
+)[1].without_noise()
+diagram = circuit.diagram(
+    "time+detector-slice-svg",
+    filter_coords=[(i+0.5, k+0.5, 3) for i in range(5) for k in range(5)],
+    tick=range(16, 20)
+)
+with open(fig_folder / f'pannel_c.svg', 'w') as f:
+    print(diagram, file=f)   
+
+
+print()
+
+fig_name = "3a_brickwork"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+for tick in [12, 18]:
+    circuit_style = "3-CX"
+    circuit = all_circuits.make_requested_surface_code(
+        basis='Z',
+        distance=5,
+        noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+        style=circuit_style,
+        rounds=10,
+    )[1].without_noise()
+    diagram = circuit.diagram(
+        "detector-slice-svg",
+        filter_coords=None,
+        tick=tick,
+    )
+    #with open(fig_folder / f'pannel_{tick}.svg', 'w') as f:
+    #    print(diagram, file=f)
+
+    tree = smt.parse_string_to_tree(str(diagram))
+    num_marked = smt.mark_slices(tree, coords=(None, None, 3))
+    tree.write(fig_folder / f'panel_{tick}.svg')
+
+    print(f"Made Pannel {tick}, {num_marked} markers")
+print()
+
+fig_name = "3a_full_cycle"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+
+circuit_style = "3-CX"
+circuit = all_circuits.make_requested_surface_code(
+    basis='Z',
+    distance=5,
+    noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+    style=circuit_style,
+    rounds=10,
+)[1].without_noise()
+diagram = circuit.diagram(
+    "time+detector-slice-svg",
+    filter_coords=None,
+    tick=range(13,25),
+)
+#with open(fig_folder / f'pannel_{tick}.svg', 'w') as f:
+#    print(diagram, file=f)
+
+tree = smt.parse_string_to_tree(str(diagram))
+num_marked = smt.mark_slices(tree, coords=(None, None, 4))
+tree.write(fig_folder / f'main_panel.svg')
+
+print()
+
+fig_name = "3b_distortion"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+circuit_style = "4-CX"
+circuit = all_circuits.make_requested_surface_code(
+    basis='Z',
+    distance=7,
+    noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+    style=circuit_style,
+    rounds=10,
+)[1].without_noise()
+diagram = circuit.diagram(
+    "detector-slice-svg",
+    filter_coords=None,
+    tick=12,
+)
+with open(fig_folder / f'pannel_standard.svg', 'w') as f:
+   print(diagram, file=f)
+print(f"Made Pannel Standard")
+circuit_style = "4-ISWAP"
+circuit = all_circuits.make_requested_surface_code(
+    basis='Z',
+    distance=7,
+    noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+    style=circuit_style,
+    rounds=10,
+)[1].without_noise()
+diagram = circuit.diagram(
+    "detector-slice-svg",
+    filter_coords=None,
+    tick=10,
+)
+with open(fig_folder / f'pannel_distorted_1.svg', 'w') as f:
+   print(diagram, file=f)
+print(f"Made Pannel Distorted 1")
+diagram = circuit.diagram(
+    "detector-slice-svg",
+    filter_coords=None,
+    tick=20,
+)
+with open(fig_folder / f'pannel_distorted_2.svg', 'w') as f:
+   print(diagram, file=f)
+print(f"Made Pannel Distorted 2")
+print()
+
+fig_name = "3b_full_cycle"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+for tick in range(10, 21):
+    circuit_style = "4-ISWAP"
+    circuit = all_circuits.make_requested_surface_code(
+        basis='Z',
+        distance=7,
+        noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+        style=circuit_style,
+        rounds=10,
+    )[1].without_noise()
+    diagram = circuit.diagram(
+        "time+detector-slice-svg",
+        filter_coords=None,
+        tick=tick,
+    )
+    #with open(fig_folder / f'pannel_{tick}.svg', 'w') as f:
+    #    print(diagram, file=f)
+
+    tree = smt.parse_string_to_tree(str(diagram))
+    num_marked = smt.mark_slices(tree, coords=(None, None, 3))
+    tree.write(fig_folder / f'panel_{tick}.svg')
+
+    print(f"Made Pannel {tick}, {num_marked} markers")
+print()
+
+
+fig_name = "3c_half_cycle"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+
+for tick in range(7+6,13+6):
+    circuit_style = "WIGGLING-CX"
+    circuit = all_circuits.make_requested_surface_code(
+        basis='Z',
+        distance=5,
+        noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+        style=circuit_style,
+        rounds=10,
+    )[1].without_noise()
+    diagram = circuit.diagram(
+        "detector-slice-svg",
+        filter_coords=[(1.5, 1.5), (1.5, 2.5), (2.5, 2.5), (2.5, 3.5), (3, 3), (3, 4)],
+        tick=tick,
+    )
+    #with open(fig_folder / f'pannel_{tick}.svg', 'w') as f:
+    #    print(diagram, file=f)
+
+    tree = smt.parse_string_to_tree(str(diagram))
+    num_marked = 0
+    num_marked += smt.mark_slices(tree, coords=(None, None, 3))
+
+    # num_marked += smt.mark_slices(tree, coords=(1.5, 1.5, 2), marker='s')
+    # num_marked += smt.mark_slices(tree, coords=(1.5, 2.5, 2), marker='s')
+
+    # num_marked += smt.mark_slices(tree, coords=(2.5, 2.5, 2), marker='*')
+    # num_marked += smt.mark_slices(tree, coords=(2.5, 3.5, 2), marker='*')
+
+    num_colored=0
+    # num_colored = smt.color_slices(tree, coords=(1.5, 1.5, 2))
+    # num_colored = smt.color_slices(tree, coords=(1.5, 2.5, 2))
+    # num_colored += smt.color_slices(tree, color='#FF0000', coords=(3, 3, 3))
+    # num_colored += smt.color_slices(tree, color='#FF0000', coords=(3, 4, 3))
+    #num_colored += smt.color_slices(tree, color='#cc66ff', coords=(2.5, 2.5, 2))
+    #num_colored += smt.color_slices(tree, color='#ff8000', coords=(2.5, 3.5, 2))
+
+    tree.write(fig_folder / f'panel_{tick}.svg')
+
+    print(f"Made Pannel {tick}, {num_marked} markers, {num_colored} recolored")
+
+
+print()
+
+fig_name = "3c_full_cycle"
+fig_folder = main_figures / fig_name
+fig_folder.mkdir(exist_ok=True, parents=True)
+print(f"Making Pannels for {fig_name}")
+
+for tick in range(13, 20):
+    circuit_style = "WIGGLING-CX"
+    circuit = all_circuits.make_requested_surface_code(
+        basis='Z',
+        distance=5,
+        noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+        style=circuit_style,
+        rounds=10,
+    )[1].without_noise()
+    diagram = circuit.diagram(
+        "detector-slice-svg",
+        filter_coords=None,
+        tick=tick,
+    )
+    with open(fig_folder / f'panel_{tick}.svg', 'w') as f:
+       print(diagram, file=f)
+
+    tree = smt.parse_string_to_tree(str(diagram))
+    num_marked = smt.mark_slices(tree, coords=(None, None, 3))
+    tree.write(fig_folder / f'panel_{tick}_marked.svg')
+
+    print(f"Made Panel {tick}, {num_marked} markers")
+
+
+print()

@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+import pathlib
+
+
+from midout import all_circuits, gen
+
+
+def escape_latex(x: str) -> str:
+    return x.replace('_', '\\_')
+
+
+parent = pathlib.Path('out/assets/regen/schedules')
+parent.mkdir(exist_ok=True, parents=True)
+for tick_range, circuit_style in [
+        (range(6, 17), '4-CX'),
+        (range(10, 20), '4-CZ'),
+
+        (range(14, 26), '3-CX'),
+        (range(14, 14 + 11*2), '3-CZ'),
+        (range(14, 26), '3-CX-wiggle'),
+        (range(14, 14 + 11*2), '3-CZ-wiggle'),
+
+        (range(12, 24), '4-CXSWAP'),
+        (range(10, 30), '4-ISWAP'),
+        (range(14, 26), '3-CXSWAP'),
+        (range(14, 36), '3-ISWAP'),
+        (range(14, 26), '3-CXSWAP-wiggle'),
+        (range(14, 36), '3-ISWAP-wiggle'),
+
+        (range(13, 25), 'WIGGLING-CX'),
+        (range(10, 20), 'WIGGLING-CZ'),
+        (range(13, 25), 'GLIDING-CX'),
+        (range(10, 20), 'GLIDING-CZ'),
+        (range(13, 25), 'SLIDING-CX'),
+        (range(10, 20), 'SLIDING-CZ'),
+
+        (range(9, 25), 'TORIC-4-CX'),
+        (range(18, 38), 'TORIC-3_HEAVY-CX'),
+        (range(8, 22), 'TORIC-3_SEMI_HEAVY-CX'),
+
+        (range(8, 8 + 6*2), '3-CZ_MZZ'),
+        (range(10, 16), '3-CX_MXX_MZZ'),
+        (range(6, 12), 'TORIC-3-CX_MXX_MZZ'),
+    ]:
+    circuit = all_circuits.make_requested_surface_code(
+        basis='Z',
+        distance=6 if 'TORIC' in circuit_style else 5,
+        noise=gen.NoiseModel.uniform_depolarizing(1e-3),
+        style=circuit_style,
+        rounds=10,
+    )[1].without_noise()
+    diagram = circuit.diagram(
+        "time+detector-slice-svg",
+        filter_coords=[(2.5, 2.5), (3, 3), (3.5, 2.5), (2, 3)],
+        tick=tick_range,
+    )
+    with open(parent / f'schedule_{circuit_style}.svg', 'w') as f:
+        print(diagram, file=f)
